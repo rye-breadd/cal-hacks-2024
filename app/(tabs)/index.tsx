@@ -9,53 +9,13 @@ import { SetStateAction, useEffect, useRef, useState } from 'react';
 import { CameraType } from 'expo-camera/build/legacy/Camera.types';
 
 export default function HomeScreen() {
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [cameraVisible, setCameraVisible] = useState(true);
-  const [cameraRef, setCameraRef] = useState(null);
-
-  useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
-  }, []);
-
-  if (hasPermission === null) {
-    return <View />;
-  }
-  if (hasPermission === false) {
-    return <Text>No access to camera</Text>;
-  }
-
+ 
   return (
     <View style={styles.container}>
       {/* Logo at the top */}
       <Image style={styles.logo} />
 
-      {/* Camera view */}
-      <View style={styles.cameraContainer}>
-        <TouchableOpacity
-          style={styles.hideCameraButton}
-          onPress={() => setCameraVisible(!cameraVisible)}
-        >
-          <Text style={styles.hideCameraText}>
-            {cameraVisible ? 'Hide camera' : 'Show camera'}
-          </Text>
-        </TouchableOpacity>
-
-        {cameraVisible && (
-          <CameraView
-            style={styles.cameraView}
-          >
-            <View style={styles.cameraView}>
-              <TouchableOpacity>
-                <Text>Flip Camera</Text>
-              </TouchableOpacity>
-            </View>
-          </CameraView> 
-        )}
-      </View>
-
+      
       {/* OK to drive button */}
       <View style={styles.okButtonContainer}>
         <TouchableOpacity style={styles.okButton} onPress={() => Alert.alert('Checked', 'You are OK to drive!')}>
