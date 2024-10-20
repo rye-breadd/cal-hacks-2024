@@ -1,5 +1,5 @@
-from flask import Flask, Response, jsonify
-from flask_cors import CORS
+from flask import Flask, render_template
+from flask_socketio import SocketIO, emit
 import cv2
 import dlib
 import imutils
@@ -7,11 +7,9 @@ import time
 import numpy as np
 from scipy.spatial import distance as dist
 from imutils import face_utils
-from threading import Thread
-import playsound
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend access
+socketio = SocketIO(app, cors_allowed_origins="*")  # Enable SocketIO with CORS support
 
 # Global variables for the drowsiness detection
 alarm_status = False
@@ -57,18 +55,8 @@ def lip_distance(shape):
     distance = abs(top_mean[1] - low_mean[1])
     return distance
 
-# Function to handle alarm sound
-def sound_alarm(path):
-    global alarm_status, alarm_status2, saying
-    while alarm_status:
-        playsound.playsound(path)
-    if alarm_status2 and not saying:
-        saying = True
-        playsound.playsound(path)
-        saying = False
-
-# Video streaming generator with drowsiness detection
-def generate_frames():
+# Function to stream video frames over socket
+def generate_video_stream():
     global alarm_status, alarm_status2, COUNTER
 
     vs = cv2.VideoCapture(0)  # Use the default camera
@@ -78,6 +66,7 @@ def generate_frames():
         success, frame = vs.read()
         if not success:
             break
+
         frame = imutils.resize(frame, width=450)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -97,9 +86,6 @@ def generate_frames():
                 if COUNTER >= EYE_AR_CONSEC_FRAMES:
                     if not alarm_status:
                         alarm_status = True
-                        t = Thread(target=sound_alarm, args=('Alert.WAV',))
-                        t.daemon = True
-                        t.start()
                     cv2.putText(frame, "DROWSINESS ALERT!", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             else:
                 COUNTER = 0
@@ -107,13 +93,6 @@ def generate_frames():
 
             if distance > YAWN_THRESH:
                 cv2.putText(frame, "Yawn Alert", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                if not alarm_status2 and not saying:
-                    alarm_status2 = True
-                    t = Thread(target=sound_alarm, args=('Alert.WAV',))
-                    t.daemon = True
-                    t.start()
-            else:
-                alarm_status2 = False
 
             # Draw contours around eyes and mouth
             leftEyeHull = cv2.convexHull(leftEye)
@@ -123,25 +102,28 @@ def generate_frames():
             lip = shape[48:60]
             cv2.drawContours(frame, [lip], -1, (0, 255, 0), 1)
 
-        # Encode frame and yield it
+        # Encode frame as JPEG and send via WebSocket
         ret, buffer = cv2.imencode('.jpg', frame)
         frame = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        socketio.emit('video_frame', {'frame': frame})
 
-@app.route('/video_feed', methods=['GET'])
-def video_feed():
-    response =  Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    return response
+@app.route('/')
+def index():
+    return render_template('index.html')  # Render the index.html file
 
+@socketio.on('connect')
+def connect():
+    print('Client connected')
 
-@app.route('/api/debug', methods=['GET'])
-def connect_response():
-    return jsonify({"message": "Flask Server Works"})
+@socketio.on('disconnect')
+def disconnect():
+    print('Client disconnected')
+
+# Start the video stream in the background
+def background_video_stream():
+    while True:
+        generate_video_stream()
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
-
-
-
+    socketio.start_background_task(background_video_stream)  # Start the video stream as a background task
+    socketio.run(app, port=5001, debug=True)
